@@ -1,0 +1,25 @@
+# 字节码和缓存
+__pycache__/
+*.py[cod]
+*$py.class
+*.pyc
+*.pyo
+.DS_Store
+
+# 虚拟环境目录（常见的有 venv, .venv, env 等）
+.venv/
+venv/
+env/
+ENV/
+
+# 常见构建输出
+build/
+dist/
+*.egg-info/
+
+# 系统杂项
+.DS_Store
+Thumbs.db
+
+# 敏感配置/私钥（如果项目有的话）
+.env
