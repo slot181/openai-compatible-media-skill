@@ -1,6 +1,7 @@
 #!/usr/bin/env python3
 import base64
 import json
+import math
 import mimetypes
 import os
 import re
@@ -12,7 +13,27 @@ from typing import Optional, Tuple
 from urllib.parse import urlparse
 from urllib.request import urlopen, Request
 
-DEFAULT_TIMEOUT_SECONDS = float(os.getenv("OPENAPI_REQUEST_TIMEOUT", "180"))
+DEFAULT_TIMEOUT_SECONDS = 180
+
+
+def request_timeout(override: Optional[float] = None) -> float:
+    if override is not None:
+        if type(override) not in (int, float):
+            raise ValueError("timeout_seconds must be a positive finite number")
+        try:
+            timeout = float(override)
+        except OverflowError:
+            raise ValueError("timeout_seconds must be a positive finite number") from None
+        if not math.isfinite(timeout) or timeout <= 0:
+            raise ValueError("timeout_seconds must be a positive finite number")
+        return timeout
+    try:
+        timeout = float(os.getenv("OPENAPI_REQUEST_TIMEOUT", str(DEFAULT_TIMEOUT_SECONDS)))
+    except ValueError:
+        raise ValueError("OPENAPI_REQUEST_TIMEOUT must be a positive finite number") from None
+    if not math.isfinite(timeout) or timeout <= 0:
+        raise ValueError("OPENAPI_REQUEST_TIMEOUT must be a positive finite number")
+    return timeout
 
 
 def eprint(*args, **kwargs):
@@ -79,20 +100,25 @@ def is_url(value: str) -> bool:
         return False
 
 
-def download_to_temp(url: str, suffix: Optional[str] = None) -> Path:
+def download_to_temp(url: str, suffix: Optional[str] = None, *, timeout_seconds: Optional[float] = None) -> Path:
+    timeout = request_timeout(timeout_seconds)
     parsed = urlparse(url)
     guessed_suffix = suffix or Path(parsed.path).suffix or ".bin"
     fd, path = tempfile.mkstemp(prefix="openapi_", suffix=guessed_suffix, dir=str(temp_dir()))
     os.close(fd)
     req = Request(url, headers={"User-Agent": "OpenClaw openapi-media skill"})
-    with urlopen(req, timeout=DEFAULT_TIMEOUT_SECONDS) as resp, open(path, "wb") as f:
-        f.write(resp.read())
+    try:
+        with urlopen(req, timeout=timeout) as resp, open(path, "wb") as f:
+            f.write(resp.read())
+    except Exception:
+        Path(path).unlink(missing_ok=True)
+        raise
     return Path(path)
 
 
-def resolve_local_or_url(path_or_url: str) -> Tuple[Path, bool]:
+def resolve_local_or_url(path_or_url: str, *, timeout_seconds: Optional[float] = None) -> Tuple[Path, bool]:
     if is_url(path_or_url):
-        return download_to_temp(path_or_url), True
+        return download_to_temp(path_or_url, timeout_seconds=timeout_seconds), True
     p = Path(path_or_url).expanduser().resolve()
     if not p.exists():
         raise FileNotFoundError(f"Input file not found: {p}")

@@ -1,5 +1,16 @@
 # Usage Examples
 
+## Configure image model defaults
+
+Set the exact model IDs supported by your provider in the environment inherited by the scripts. For the provider model used in this project:
+
+```bash
+export OPENAPI_OPENAI_IMAGE_MODEL='openai/gpt-image-2.5-flare'
+export OPENAPI_OPENAI_EDIT_IMAGE_MODEL='openai/gpt-image-2.5-flare'
+```
+
+Generation with this provider model has been verified; editing availability must also be supported by the provider. These exports apply to the current shell and its child processes. For an agent runner, set the variables in that runner's environment. An explicit JSON `model` takes priority; omitting it without the corresponding environment variable now produces an error instead of selecting `gpt-image-1`.
+
 ## 1. Generate an image with only the required field
 
 ```bash
@@ -8,7 +19,31 @@ python3 {baseDir}/scripts/generate_image.py <<'EOF'
 EOF
 ```
 
-Use this when the user only cares about the image itself and did not request explicit model or format overrides.
+Use this after configuring `OPENAPI_OPENAI_IMAGE_MODEL`, when the user did not request explicit model or format overrides.
+
+To diagnose a provider exposing the exact model ID `openai/gpt-image-2.5-flare`, use a minimal request with your existing API credentials and base URL in the environment:
+
+```bash
+OPENAPI_REQUEST_TIMEOUT=180 python3 {baseDir}/scripts/generate_image.py <<'EOF'
+{"prompt":"A red ceramic cup on a plain white background", "model":"openai/gpt-image-2.5-flare"}
+EOF
+```
+
+Keep the `openai/` prefix only if your provider uses it. The heredoc closes stdin; progress is written to stderr and the result to stdout. See `openai-images.md` for interpreting timeout stages.
+
+To allow a slower generation 300 seconds per blocking network operation for this invocation:
+
+```bash
+python3 {baseDir}/scripts/generate_image.py <<'EOF'
+{
+  "prompt": "A red ceramic cup on a plain white background",
+  "model": "openai/gpt-image-2.5-flare",
+  "timeout_seconds": 300
+}
+EOF
+```
+
+`timeout_seconds` overrides the environment timeout without changing it and is never sent to the provider. It also works with `edit_image.py`, covering the API request and any source image/mask downloads. Use a positive fractional value such as `0.2` with a local mock server to test timeouts. Other omitted options remain absent from the API request.
 
 ## 2. Generate an image with explicit OpenAI-style options
 
@@ -25,7 +60,7 @@ python3 {baseDir}/scripts/generate_image.py <<'EOF'
 EOF
 ```
 
-Use only supported OpenAI-style fields. Do not invent width, height, steps, cfg, sampler, or other Stable-Diffusion-only parameters.
+Use the supported API fields and optional local `timeout_seconds`. For dimensions, use only `size`; `width`, `height`, and `aspect_ratio` are rejected. Do not add steps, cfg, sampler, or other Stable-Diffusion-only parameters.
 
 ## 3. Edit an image without a mask
 
@@ -59,6 +94,25 @@ EOF
 ```
 
 Use `mask` when only a specific region should change.
+
+### Generate a new image from multiple references
+
+```bash
+python3 {baseDir}/scripts/edit_image.py <<'EOF'
+{
+  "image": [
+    "/absolute/path/person.png",
+    "/absolute/path/clothing.png",
+    "https://example.com/background.png"
+  ],
+  "prompt": "Create a new full-body photograph of the person from image 1 wearing the clothes from image 2, in the setting from image 3. Preserve the person's facial features and the clothing design, with consistent lighting and perspective.",
+  "model": "openai/gpt-image-2.5-flare",
+  "timeout_seconds": 300
+}
+EOF
+```
+
+Replace the reference paths/URL with accessible images. Supply 1–16 images in the intended order; local paths and HTTP/HTTPS URLs can be mixed. A single string is still accepted for existing single-image calls. A mask is optional and, if supplied, applies to the first image only. Unspecified size, quality, and other API options remain unset. The input array is separate from `n`, which controls how many output images to generate.
 
 ## 5. Generate speech with environment defaults
 
@@ -108,13 +162,13 @@ EOF
 1. Read `openai-images.md` when image parameters matter.
 2. Build the final prompt yourself.
 3. Keep parameters inside the supported OpenAI-style field set.
-4. Call `generate_image.py` with one complete JSON object via stdin.
+4. For text-only generation, call `generate_image.py` with one complete JSON object via stdin. If the user supplies reference images, follow the workflow below with `edit_image.py`.
 
-### Image editing
+### Image editing and generation from references
 
-1. Confirm the source image path or URL.
-2. Add `mask` only when the edit must stay localized.
-3. Build a precise edit prompt that describes what changes and what must stay.
+1. Put the source path/URL or ordered array of 1–16 paths/URLs in `image`.
+2. Add `mask` only when the edit must stay localized; it applies to the first reference.
+3. Build a prompt that describes each reference's role, the desired composition or changes, and what must stay.
 4. Call `edit_image.py` with one complete JSON object via stdin.
 
 ### Speech generation
